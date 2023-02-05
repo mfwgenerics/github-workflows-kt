@@ -1,46 +1,16 @@
 package it.krzeminski.githubactions.yaml
 
-import org.snakeyaml.engine.v2.api.DumpSettings
-import org.snakeyaml.engine.v2.api.StreamDataWriter
-import org.snakeyaml.engine.v2.common.FlowStyle
 import org.snakeyaml.engine.v2.common.ScalarStyle
-import org.snakeyaml.engine.v2.emitter.Emitter
-import org.snakeyaml.engine.v2.events.DocumentEndEvent
-import org.snakeyaml.engine.v2.events.DocumentStartEvent
-import org.snakeyaml.engine.v2.events.ImplicitTuple
-import org.snakeyaml.engine.v2.events.MappingEndEvent
-import org.snakeyaml.engine.v2.events.MappingStartEvent
-import org.snakeyaml.engine.v2.events.ScalarEvent
-import org.snakeyaml.engine.v2.events.SequenceEndEvent
-import org.snakeyaml.engine.v2.events.SequenceStartEvent
-import org.snakeyaml.engine.v2.events.StreamEndEvent
-import org.snakeyaml.engine.v2.events.StreamStartEvent
-import java.io.StringWriter
-import java.util.Optional
 
 internal fun Any.toYaml(): String {
-    val settings = DumpSettings.builder()
-        // Otherwise line breaks appear in places that create an incorrect YAML, e.g. in the middle of GitHub
-        // expressions.
-        .setWidth(Int.MAX_VALUE)
-        .build()
-    val writer = object : StringWriter(), StreamDataWriter {
-        override fun flush() {
-            // no-op
-        }
-    }
-    val emitter = Emitter(settings, writer)
-    emitter.emit(StreamStartEvent())
-    emitter.emit(DocumentStartEvent(false, Optional.empty(), emptyMap()))
+    val emitter = YamlStringBuilder()
 
     this.elementToYaml(emitter)
 
-    emitter.emit(DocumentEndEvent(false))
-    emitter.emit(StreamEndEvent())
-    return writer.toString()
+    return emitter.finish()
 }
 
-private fun Any?.elementToYaml(emitter: Emitter) {
+private fun Any?.elementToYaml(emitter: YamlBuilder) {
     when (this) {
         is Map<*, *> -> this.mapToYaml(emitter)
         is List<*> -> this.listToYaml(emitter)
@@ -49,38 +19,26 @@ private fun Any?.elementToYaml(emitter: Emitter) {
     }
 }
 
-private fun Map<*, *>.mapToYaml(emitter: Emitter) {
-    emitter.emit(MappingStartEvent(Optional.empty(), Optional.empty(), true, FlowStyle.BLOCK))
-
-    this.forEach { (key, value) ->
-        // key
-        emitter.emit(
-            ScalarEvent(
-                Optional.empty(),
-                Optional.empty(),
-                ImplicitTuple(true, true),
-                key.toString(),
-                ScalarStyle.PLAIN,
-            ),
-        )
-        // value
-        value.elementToYaml(emitter)
+private fun Map<*, *>.mapToYaml(emitter: YamlBuilder) {
+    emitter.map {
+        this.forEach { (key, value) ->
+            // key
+            it.scalar("$key", ScalarStyle.PLAIN)
+            // value
+            value.elementToYaml(it)
+        }
     }
-
-    emitter.emit(MappingEndEvent())
 }
 
-private fun List<*>.listToYaml(emitter: Emitter) {
-    emitter.emit(SequenceStartEvent(Optional.empty(), Optional.empty(), true, FlowStyle.BLOCK))
-
-    this.forEach { value ->
-        value.elementToYaml(emitter)
+private fun List<*>.listToYaml(emitter: YamlBuilder) {
+    emitter.list {
+        this.forEach { value ->
+            value.elementToYaml(it)
+        }
     }
-
-    emitter.emit(SequenceEndEvent())
 }
 
-private fun Any?.scalarToYaml(emitter: Emitter) {
+private fun Any?.scalarToYaml(emitter: YamlBuilder) {
     val scalarStyle = if (this is String) {
         if (lines().size > 1) {
             ScalarStyle.LITERAL
@@ -92,7 +50,6 @@ private fun Any?.scalarToYaml(emitter: Emitter) {
     } else {
         ScalarStyle.PLAIN
     }
-    emitter.emit(
-        ScalarEvent(Optional.empty(), Optional.empty(), ImplicitTuple(true, true), this.toString(), scalarStyle),
-    )
+
+    emitter.scalar("$this", scalarStyle)
 }
